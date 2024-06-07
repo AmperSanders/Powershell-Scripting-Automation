@@ -1,5 +1,5 @@
 # Powershell-Scripting-Automation
-This is a repository for everything Powershell. Please see README for more details.
+This is a repository for everything Powershell.
 
 These scripts are scripts that were used for work scenarios.
 I would like to showcase a few projects and make them available for others to use.
