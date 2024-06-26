@@ -388,8 +388,13 @@ $mainForm.Controls.Add($closeBtn)
 
 #Generates password on each button press
 $PasswordBtn.Add_click({
+try{
+$pwAPI = Invoke-RestMethod -Uri "https://random-word-api.herokuapp.com/word?number=2&length=8" -Method Get -TimeoutSec 10 -ErrorAction continue
+$PWGenTextbox.Text = $textInfo.ToTitleCase($pwAPI[0].ToLower())+"-"+$pwAPI[1]+('!', '@', '+' | Get-Random)+(get-random -Minimum 1000 -Maximum 9999)
+}catch{ #If API fails
 $password = $1stWord[(0..($1stWord.Count-1) | Get-Random)]+$2ndWord[(0..($2ndWord.Count-1) | Get-Random)]+$specNum[(0..($specNum.Count-1) | Get-Random)]
 $PWGenTextbox.Text = $password
+}
 })
 
 $closeBtn.add_click({
