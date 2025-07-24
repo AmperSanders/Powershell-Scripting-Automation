@@ -499,7 +499,7 @@ function SendVendorEmail {
                         "<br>For inquiries involving access, please reach out the manager/sponsor: " + $Manager.mail +"`r`n" +
                         "<br>Thank you for your support!<br>")
 
-    Send-MailMessage -From $sendFrom -To $vendorVpnContact[0] -Cc @($vendorVpnContact[1], $vendorVpnContact[2])  -Bcc @('whoeverEmail')  -SmtpServer $smtpServer -Port 25 `
+    Send-MailMessage -From $sendFrom -To $vendorVpnContact[0] -Cc @($vendorVpnContact[1], $vendorVpnContact[2], $Manager.mail)  -Bcc @('whoeverEmail')  -SmtpServer $smtpServer -Port 25 `
                         -Subject "Vendor VPN Resource Access" -BodyAsHtml `
                         -Body $body
 }
