@@ -1,25 +1,38 @@
-﻿﻿Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Confirm:$false
-
+Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Confirm:$false
+Connect-ExchangeOnline
+$textInfo = (Get-Culture).TextInfo
 Add-Type -AssemblyName System.Windows.Forms
 $Timer = New-Object System.Windows.Forms.Timer
 
 #Global Variables
-$domainController = "PRIMARY_DOMAIN_CONTROLLER"
-$newUserPassword = "STANDARD_PASSWORD_POLICY"
-$sendFrom = "FOR_AUTOMATED_SEND_FROM"
-$morVonPhones = "DEDICATED_SITE_RESOURCE"
-$oracleContact = "DEDICATED_ORACLE_RESOURCE"
-$OUs = Get-ADOrganizationalUnit -Filter {(Name -like "*Users*")} -SearchBase "OU LOCATION" -Properties DistinguishedName -SearchScope Subtree `
+$time = [int]((Get-Date -Format "HHmm").TrimStart('0'))
+$domainController = "DomainController"
+$newUserPassword = "Password"
+$smtpServer = "SMTPserver"
+$sendFrom = "email"
+$PhoneContact = "phoneCarrierResources"
+$oracleContact = "OracleResource"
+$vendorVpnContact = @("VendorCreationEmails")
+
+$naOUs = Get-ADOrganizationalUnit -Filter {(Name -like "*Users*")} -SearchBase "SearchBase" -Properties DistinguishedName -SearchScope Subtree `
 | Select DistinguishedName `
-| Where {$_.DistinguishedName -notlike "DISABLED OU" -and `
+| Where {$_.DistinguishedName -notlike "DistinguishedName" -and `
 $_.DistinguishedName -notlike "*Generic*" -and $_.DistinguishedName -notlike "*Administration*" -and `
-$_.DistinguishedName -notlike "*TestCompany*" -and $_.DistinguishedName -notlike "*Migrated*"} | Sort-Object DistinguishedName
+$_.DistinguishedName -notlike "*TestCompany*" -and $_.DistinguishedName -notlike "*Migrated*" -and $_.DistinguishedName -notlike "*Disable*"} | Sort-Object DistinguishedName
 
-$domainNames = @(   '@LIST_OF.COM',
-                    '@DOMAIN.mx',
-                    '@NAMES.com.br')
+$saOUs = Get-ADOrganizationalUnit -Filter {(Name -like "*Users*")} -SearchBase "SearchBase" -Properties DistinguishedName -SearchScope Subtree `
+| select DistinguishedName | where {$_.distinguishedName -notlike "*Generic*" -and $_.distinguishedName -notlike "*Disable*" -and $_.distinguishedName -notlike "*Terminated*" `
+-and $_.distinguishedName -notlike "*VPN*"}
 
-#Use for Password generation -- Can add 8 character word minimum
+$OUs = $naOUs + $saOUs
+
+$domainNames = @(   '@At.com',
+                    '@Random.mx',
+                    '@Email.com.br',
+                    '@Domain.com.ar',
+                    '@Name.com.br')
+
+#Can add 8 character word minimum
 $1stWord = #Needs an uppercase letter and special charater
 "Galactical_","Decimeter_",
 "Inactivity!", "Resentful_",
@@ -44,30 +57,38 @@ $specNum =
 "_11", "+24",
 "@00", "404"
 
+switch($time){
+    {$_ -gt 700 -and $_ -lt 1100} {$backColor = "#f5d16e"; $foreColor = "#6a62ad"; $btnColor = "#a9f1f6"; $btnTextColor = "black"; $fontStyle = "Garamond Bold"; $fontSize = "8.5" ; $theme = "Morning Bliss Theme"; break}  #7am - 10am
+    {$_ -gt 1059 -and $_ -lt 1300} {$backColor = "#846f6f"; $foreColor = "#9cbdd6"; $btnColor = "#dbb4ad"; $btnTextColor = "black"; $fontStyle = "Verdana"; $fontSize = "8" ; $theme = "Lazy Afternoon Theme"; break} #10am - 1pm
+    {$_ -gt 1259 -and $_ -lt 1700} {$backColor = "#6f8392"; $foreColor = "#ffc771"; $btnColor = "#ffab9a"; $btnTextColor = "black"; $fontStyle = "Helvetica"; $fontSize = "8" ; $theme = "Sunset Drive Theme"; break} #1pm - 5pm
+    default {$backColor = "#141414"; $foreColor = "#ffffff"; $btnColor = "#a10000"; $btnTextColor = "#ffffff"; $fontStyle = ""; $fontSize = "8" ; $theme = "Default Theme"}
+}
 function ClearForm{
 $fNameTextbox.Clear()
 $lNameTextbox.Clear()
 $locationCombo.Text = "OU="
+$domainCombo.Text = $domainNames[0]
 $titleTextbox.Clear()
 $mgrTextbox.Clear()
 $oracleTextbox.Clear()
 $ADMirrorTextbox.Clear()
 $VPNCheckbox.Checked = $false
 $VendorCheckbox.Checked = $false
-$O365Checkbox.Checked = $false
 $PWGenTextbox.Text = "Generate Password"
 $cellCheckbox.Checked = $false
 $startDateTextbox.Text = "MM/DD/YYYY"
 $costCenterTextbox.Text = "XXX-XXX-XXXX"
 $addressTextbox.Clear()
 $ticketTextbox.Clear()
+$VendorResourcesTextBox.Text = "Copy and Paste the resources needed for the vendor *separate by semicolons if possible*"
+$VendorCompanyTextBox.Clear()
 }
 
 function FieldUpdates {
     $samNameTextbox.Text = $fNameTextbox.Text+"."+$lNameTextbox.Text
     $EmailTextbox.Text = $($samNameTextbox.Text+$domainCombo.SelectedItem)
 
-    if($cellCheckbox.Checked -ne $true){
+    if(!$cellCheckbox.Checked){
         $startDateTextbox.Visible = $false
         $startDateLabel.Visible = $false
         $costCenterTextbox.Visible = $false
@@ -76,6 +97,8 @@ function FieldUpdates {
         $addressLabel.Visible = $false
         $ticketLabel.Visible = $false
         $ticketTextbox.Visible = $false
+        $Vendorlabel.Visible = $true
+        $VendorCheckbox.Visible = $true
     }else{
         $startDateTextbox.Visible = $true
         $startDateLabel.Visible = $true
@@ -85,17 +108,22 @@ function FieldUpdates {
         $addressLabel.Visible = $true
         $ticketLabel.Visible = $true
         $ticketTextbox.Visible = $true
+        $Vendorlabel.Visible = $false
+        $VendorCheckbox.Visible = $false
     }
     if($VendorCheckbox.Checked){
-        $locationCombo.Text = "VENDOR_OU_LOCATION"
+        $locationCombo.Text = "VendorOULocation"
         $ADMirrorTextbox.BackColor = "184, 57, 57"
         $ADMirrorTextbox.Enabled = $false
-        $CellLabel.BackColor = "184, 57, 57"
-        $cellCheckbox.Enabled = $false
+        $CellLabel.Visible = $false
+        $cellCheckbox.Visible = $false
         $oracleTextbox.BackColor = "184, 57, 57"
         $oracleTextbox.Enabled = $false
-        $VendorO365Label.Visible = $true
-        $O365Checkbox.Visible = $true
+        $VPNLabel.Visible = $false
+        $VPNCheckbox.Visible = $false
+        $VendorResourcesTextBox.Visible = $true
+        $VendorCompanyLabel.Visible = $true
+        $VendorCompanyTextBox.Visible = $true
         $PWGenTextbox.Visible = $true
         $PasswordBtn.Visible = $true
         $startDateTextbox.enabled = $false
@@ -106,17 +134,20 @@ function FieldUpdates {
         $costCenterTextbox.BackColor = "184, 57, 57"
         $addressTextbox.BackColor = "184, 57, 57"
         $ticketTextbox.BackColor = "184, 57, 57"
-
     }else{
-        $VendorO365Label.Visible = $false
-        $O365Checkbox.Visible = $false
+        $VPNLabel.Visible = $true
+        $VPNCheckbox.Visible = $true
+        $VendorResourcesTextBox.Visible = $false
+        $VendorCompanyLabel.Visible = $false
+        $VendorCompanyTextBox.Visible = $false
         $PWGenTextbox.Visible = $false
         $PasswordBtn.Visible = $false
         $ADMirrorTextbox.Enabled = $true
         $ADMirrorTextbox.ResetBackColor()
         $cellCheckbox.Enabled = $true
         $oracleTextbox.Enabled = $true
-        $CellLabel.ResetBackColor()
+        $CellLabel.Visible = $true
+        $cellCheckbox.Visible = $true
         $oracleTextbox.ResetBackColor()
         $startDateTextbox.enabled = $true
         $costCenterTextbox.enabled = $true
@@ -130,16 +161,18 @@ function FieldUpdates {
 }
 
 #####Window Form#####
+$font = New-Object System.Drawing.Font($fontStyle, $fontSize <#[System.Drawing.FontStyle]::Bold#>)
 $mainForm = New-Object System.Windows.Forms.Form
-$mainForm.Text = "User creation"
+$mainForm.Text = "User creation by AmperSanders - " + $theme
 $mainForm.Height = 450
 $mainForm.Width = 595
 $mainForm.MaximizeBox = $false
 $mainForm.FormBorderStyle = "FixedDialog"
 $mainForm.TopMost = $false
 $mainForm.StartPosition = 'CenterScreen'
-$mainForm.ForeColor = "#ffffff"
-$mainForm.BackColor = "#141414"
+$mainForm.ForeColor = $foreColor
+$mainForm.BackColor = $backColor
+$mainForm.Font = $font
 
 #####First Name#####
 $FNameLabel = New-Object System.Windows.Forms.Label
@@ -192,8 +225,8 @@ $EmailTextbox.Enabled = $false
 $mainForm.Controls.Add($EmailTextbox)
 
 $domainCombo = New-Object System.Windows.Forms.ComboBox
-$domainCombo.Location = New-Object System.Drawing.Point(325,108)
-$domainCombo.Width = 200
+$domainCombo.Location = New-Object System.Drawing.Point(310,108)
+$domainCombo.Width = 100
 $domainCombo.Items.AddRange($domainNames)
 $domainCombo.SelectedIndex = 0
 $mainForm.Controls.Add($domainCombo)
@@ -206,7 +239,7 @@ $locationLabel.AutoSize = $true
 $mainForm.Controls.Add($locationLabel)
 
 $locationCombo = New-Object System.Windows.Forms.ComboBox
-$locationCombo.Width = 450
+$locationCombo.Width = 420
 foreach($ou in $OUs){
     $locationCombo.Items.Add($ou.distinguishedName)
 }
@@ -230,13 +263,13 @@ $mainForm.Controls.Add($titleTextbox)
 
 $mgrLabel = New-Object System.Windows.Forms.Label
 $mgrLabel.Text = "Manager"
-$mgrLabel.Location = New-Object System.Drawing.Point(325,170)
+$mgrLabel.Location = New-Object System.Drawing.Point(340,170)
 $mgrLabel.AutoSize = $true
 $mainForm.Controls.Add($mgrLabel)
 
 $mgrTextbox = New-Object System.Windows.Forms.TextBox
 $mgrTextbox.Location = New-Object System.Drawing.Point(395,168)
-$mgrTextbox.Size = New-Object System.Drawing.Size(180,325)
+$mgrTextbox.Size = New-Object System.Drawing.Size(150,325)
 $mgrTextbox
 $mainForm.Controls.Add($mgrTextbox)
 
@@ -255,7 +288,7 @@ $mainForm.Controls.Add($oracleTextbox)
 #####Security Groups#####
 $ADMirrorLabel = New-Object System.Windows.Forms.Label
 $ADMirrorLabel.Text = "Mirror AD Like"
-$ADMirrorLabel.Location = New-Object System.Drawing.Point(290,200)
+$ADMirrorLabel.Location = New-Object System.Drawing.Point(300,200)
 $ADMirrorLabel.AutoSize = $true
 $mainForm.Controls.Add($ADMirrorLabel)
 
@@ -276,6 +309,17 @@ $VPNCheckbox.Size = New-Object System.Drawing.Size(20,20)
 $mainForm.Controls.Add($VPNCheckbox)
 
 #Vendor Options
+$VendorCompanyLabel = New-Object System.Windows.Forms.Label
+$VendorCompanyLabel.Text = "Vendor Company"
+$VendorCompanyLabel.Location = New-Object System.Drawing.Point(10,230)
+$VendorCompanyLabel.AutoSize = $true
+$mainForm.Controls.Add($VendorCompanyLabel)
+
+$VendorCompanyTextBox = New-Object System.Windows.Forms.TextBox
+$VendorCompanyTextBox.Location = New-Object System.Drawing.Point(125,229)
+$VendorCompanyTextBox.Size = New-Object System.Drawing.Size(150,20)
+$mainForm.Controls.Add($VendorCompanyTextBox)
+
 $Vendorlabel = New-Object System.Windows.Forms.Label
 $Vendorlabel.Text = "Vendor Account?"
 $Vendorlabel.Location = New-Object System.Drawing.Point(10,260)
@@ -286,17 +330,6 @@ $VendorCheckbox = New-Object System.Windows.Forms.CheckBox
 $VendorCheckbox.Location = New-Object System.Drawing.Point(125,258)
 $VendorCheckbox.Size = New-Object System.Drawing.Size(20,20)
 $mainForm.Controls.Add($VendorCheckbox)
-
-$VendorO365Label = New-Object System.Windows.Forms.Label
-$VendorO365Label.Text = "O365 Access?"
-$VendorO365Label.Location = New-Object System.Drawing.Point(10,285)
-$VendorO365Label.AutoSize = $true
-$mainForm.Controls.Add($VendorO365Label)
-
-$O365Checkbox = New-Object System.Windows.Forms.CheckBox
-$O365Checkbox.Location = New-Object System.Drawing.Point(125,282)
-$O365Checkbox.Size = New-Object System.Drawing.Size(20,20)
-$mainForm.Controls.Add($O365Checkbox)
 
 $PWGenTextbox = New-Object System.Windows.Forms.TextBox
 $PWGenTextbox.Text = "Generate Password"
@@ -309,7 +342,8 @@ $mainForm.Controls.Add($PWGenTextbox)
 $PasswordBtn = New-Object System.Windows.Forms.Button
 $PasswordBtn.Location = New-Object System.Drawing.Point(45,340)
 $PasswordBtn.Text = "Generate"
-$PasswordBtn.BackColor = "#a10000"
+$PasswordBtn.BackColor = $btnColor
+$PasswordBtn.ForeColor = $btnTextColor
 $mainForm.Controls.Add($PasswordBtn)
 
 $CellLabel = New-Object System.Windows.Forms.Label
@@ -319,7 +353,7 @@ $CellLabel.AutoSize = $true
 $mainForm.Controls.Add($CellLabel)
 
 $cellCheckbox = New-Object System.Windows.Forms.CheckBox
-$cellCheckbox.Location = New-Object System.Drawing.Point(290,231)
+$cellCheckbox.Location = New-Object System.Drawing.Point(295,231)
 $cellCheckbox.Size = New-Object System.Drawing.Size(20,20)
 $mainForm.Controls.Add($cellCheckbox)
 
@@ -330,9 +364,10 @@ $startDateLabel.AutoSize = $true
 $mainForm.Controls.Add($startDateLabel)
 
 $startDateTextbox = New-Object System.Windows.Forms.TextBox
-$startDateTextbox.Location = New-Object System.Drawing.Point(420,230)
-$startDateTextbox.Size = New-Object System.Drawing.Size(100,20)
+$startDateTextbox.Location = New-Object System.Drawing.Point(425,230)
+$startDateTextbox.Size = New-Object System.Drawing.Size(120,20)
 $startDateTextbox.Text = "MM/DD/YYYY"
+$startDateTextbox.TextAlign = "Center"
 $mainForm.Controls.Add($startDateTextbox)
 
 $costCenterLabel = New-Object System.Windows.Forms.Label
@@ -342,9 +377,10 @@ $costCenterLabel.AutoSize = $true
 $mainForm.Controls.Add($costCenterLabel)
 
 $costCenterTextbox = New-Object System.Windows.Forms.TextBox
-$costCenterTextbox.Location = New-Object System.Drawing.Point(420,260)
-$costCenterTextbox.Size = New-Object System.Drawing.Size(100,20)
+$costCenterTextbox.Location = New-Object System.Drawing.Point(425,260)
+$costCenterTextbox.Size = New-Object System.Drawing.Size(120,20)
 $costCenterTextbox.Text = "XXX-XXX-XXXX"
+$costCenterTextbox.TextAlign = "Center"
 $mainForm.Controls.Add($costCenterTextbox)
 
 $addressLabel = New-Object System.Windows.Forms.Label
@@ -354,8 +390,8 @@ $addressLabel.AutoSize = $true
 $mainForm.Controls.Add($addressLabel)
 
 $addressTextbox = New-Object System.Windows.Forms.TextBox
-$addressTextbox.Location = New-Object System.Drawing.Point(420,290)
-$addressTextbox.Size = New-Object System.Drawing.Size(100,20)
+$addressTextbox.Location = New-Object System.Drawing.Point(425,290)
+$addressTextbox.Size = New-Object System.Drawing.Size(120,20)
 $mainForm.Controls.Add($addressTextbox)
 
 $ticketLabel = New-Object System.Windows.Forms.Label
@@ -365,40 +401,126 @@ $ticketLabel.AutoSize = $true
 $mainForm.Controls.Add($ticketLabel)
 
 $ticketTextbox = New-Object System.Windows.Forms.TextBox
-$ticketTextbox.Location = New-Object System.Drawing.Point(420,320)
-$ticketTextbox.Size = New-Object System.Drawing.Size(100,20)
+$ticketTextbox.Location = New-Object System.Drawing.Point(425,320)
+$ticketTextbox.Size = New-Object System.Drawing.Size(120,20)
 $mainForm.Controls.Add($ticketTextbox)
+
+$VendorResourcesTextBox = New-Object System.Windows.Forms.TextBox
+$VendorResourcesTextBox.Multiline = $true
+$VendorResourcesTextBox.WordWrap = $true
+$VendorResourcesTextBox.Location = New-Object System.Drawing.Point(315,231)
+$VendorResourcesTextBox.Size = New-Object System.Drawing.Size(230,125)
+$VendorResourcesTextBox.Text = "Copy and Paste the resources needed for the vendor *separate by semicolons if possible*"
+$mainForm.Controls.Add($VendorResourcesTextBox)
 
 #####Confirmation#####
 $creationBtn = New-Object System.Windows.Forms.Button
 $creationBtn.Location = New-Object System.Drawing.Point(220,380)
 $creationBtn.Text = "Create"
-$creationBtn.BackColor = "#a10000"
+$creationBtn.BackColor = $btnColor
+$creationBtn.ForeColor = $btnTextColor
 $mainForm.Controls.Add($creationBtn)
 
 ####Close#####
 $closeBtn = New-Object System.Windows.Forms.Button
 $closeBtn.Location = New-Object System.Drawing.Point(300,380)
 $closeBtn.Text = "Close"
-$closeBtn.BackColor = "#a10000"
+$closeBtn.BackColor = $btnColor
+$closeBtn.ForeColor = $btnTextColor
 $mainForm.Controls.Add($closeBtn)
 
-#Generates password on each button press
-$PasswordBtn.Add_click({
-try{
-$pwAPI = Invoke-RestMethod -Uri "https://random-word-api.herokuapp.com/word?number=2&length=8" -Method Get -TimeoutSec 10 -ErrorAction continue
-$PWGenTextbox.Text = $textInfo.ToTitleCase($pwAPI[0].ToLower())+"-"+$pwAPI[1]+('!', '@', '+' | Get-Random)+(get-random -Minimum 1000 -Maximum 9999)
-}catch{ #If API fails
-$password = $1stWord[(0..($1stWord.Count-1) | Get-Random)]+$2ndWord[(0..($2ndWord.Count-1) | Get-Random)]+$specNum[(0..($specNum.Count-1) | Get-Random)]
-$PWGenTextbox.Text = $password
+
+<#-----------------------------------------------------------------Methods---------------------------------------------------------------------------------#>
+function OfficeLocation {
+    param (
+        $location
+    )
+    $siteCode = switch -Wildcard ($location){
+        "*site*" {"site"}
+        "*site*" {"site"}
+        "*site*" {"site"}
+        "*site*" {"site"}
+        "*site*" {"site"}
+        "*site*" {"site"}
+        "*site*" {"site"}
+        default {$location.Remove(0,3).Split(" ")[0].trim()}
+    }
+    return $siteCode
 }
+
+function SearchManager {
+    $displayName = $mgrTextbox.Text
+    $MgrSearch = $mgrTextbox.Text.Split(",",2).Replace(" ","")
+    $mgr = $MgrSearch[1]+"."+$MgrSearch[0]
+    $Manager = Get-ADUser -Filter "mail -like '$mgr*'" -Properties Name, samaccountname, mail | Select-Object Name, samAccountName, mail
+    $MangerDN = Get-ADUser -Filter "DisplayName -like '$displayName'" -Properties Name, samaccountname, mail | select Name, samaccountName, mail
+
+    if($Manager -ne $null){
+        $Manager = Get-ADUser -Filter "mail -like '$mgr*'" -Properties Name, samaccountname, mail | Select-Object Name, samAccountName, mail
+    }elseif($MangerDN -ne $null){
+        $Manager = Get-ADUser -Filter "DisplayName -like '$displayName'" -Properties Name, samaccountname, mail | select Name, samaccountName, mail
+    }
+    return $Manager
+}
+
+function SendEmail {
+    param (
+        $site
+    )
+    Add-ADGroupMember -Identity "cellphone_Group" -Members $samNameTextbox.Text -Server $domainController
+    $url = ($ticketTextbox.Text)
+    $PhoneContact = switch($site){
+        "site" {"contactEmail"}
+        "site" {"contactEmail"}
+        default {"contactEmail"}
+    }
+    Send-MailMessage -From $sendFrom -To $PhoneContact -Cc @($Manager.mail,$EmailTextbox.Text)  -Bcc @('whoeverEmail') -SmtpServer $smtpServer -Port 25 `
+                        -Subject "CellPhone Order Placement" -BodyAsHtml `
+                        -Body ("Hello,<br>An order for a cellphone is needed for this new employee: " + "$givenName" + "`r`n" +
+                        "<br>User's Expected Start Date: " + $startDateTextbox.Text +
+                        "<br>User's Cost Center: " + $costCenterTextbox.Text + 
+                        "<br>Ship Device to: " + $addressTextbox.Text +
+                        "<br>Please visit <a href='$url'> Link </a> to view ticket." +
+                        "<br><br>Information to note" + 
+                        "<br>Cellphone information" +
+                        "<br>Thank you!<br><br>") -Attachments ".\Zero Touch Phone Enrollment.pdf"
+}
+
+function SendVendorEmail {
+    $Resources = ($VendorResourcesTextBox.Text).Split(';')
+    foreach($row in $Resources){
+     $list += "<span style='color:blue'><i>"+"<br>" + $row + "`r`n"+"<i/></span>"
+    }
+    $body =("Hello vendor team,<br>A request for vendor access is needed for this new employee: " +
+    "<span style='color:blue'>" + $samNameTextbox.Text + "</span>" + " from the company: " + "<span style='color:blue'>" + $VendorCompanyTextBox.Text + "</span>" + "`r`n" +
+                        "<br>User will need access to the listed resources: " + "`r`n" + 
+                        "<br>" + $list + 
+                        "`r`n" + "<br>" +
+                        "<br>For inquiries involving access, please reach out the manager/sponsor: " + $Manager.mail +"`r`n" +
+                        "<br>Thank you for your support!<br>")
+
+    Send-MailMessage -From $sendFrom -To $vendorVpnContact[0] -Cc @($vendorVpnContact[1], $vendorVpnContact[2])  -Bcc @('whoeverEmail')  -SmtpServer $smtpServer -Port 25 `
+                        -Subject "Vendor VPN Resource Access" -BodyAsHtml `
+                        -Body $body
+}
+
+$PasswordBtn.Add_click({
+    try{
+        $pwAPI = Invoke-RestMethod -Uri "https://random-word-api.herokuapp.com/word?number=2&length=8" -Method Get -TimeoutSec 5 -ErrorAction continue
+        $PWGenTextbox.Text = $textInfo.ToTitleCase($pwAPI[0].ToLower())+"-"+$pwAPI[1]+('!', '@', '+' | Get-Random)+(get-random -Minimum 1000 -Maximum 9999)
+    }catch{ #If API fails
+        $password = $1stWord[(0..($1stWord.Count-1) | Get-Random)]+$2ndWord[(0..($2ndWord.Count-1) | Get-Random)]+$specNum[(0..($specNum.Count-1) | Get-Random)]
+        $PWGenTextbox.Text = $password
+    }
 })
 
 $closeBtn.add_click({
-try{
-    Disconnect-MgGraph -ErrorAction Stop
-} catch{}
-$mainForm.Close()})
+    try{
+        Disconnect-MgGraph -ErrorAction Stop
+        Disconnect-ExchangeOnline -ErrorAction Stop -Confirm $false
+    }catch{}
+    $mainForm.Close()
+})
 
 $creationBtn.add_click({
 if(($fNameTextbox.Text -eq "") -or ($lNameTextbox.Text -eq "") -or ($locationCombo.Text -eq "OU=") -or $mgrTextbox.Text -eq ""){
@@ -406,28 +528,19 @@ if(($fNameTextbox.Text -eq "") -or ($lNameTextbox.Text -eq "") -or ($locationCom
     return
 }else{
 
-    if($VendorCheckbox.Checked){
-        $displayName = $mgrTextbox.Text
-        $MgrSearch = $mgrTextbox.Text.Split(",",2).Replace(" ","")
-        $mgr = $MgrSearch[1]+"."+$MgrSearch[0]
-        $Manager = Get-ADUser -Filter "mail -like '$mgr*'" -Properties Name, samaccountname, mail | Select-Object Name, samAccountName, mail
-        $MangerDN = Get-ADUser -Filter "DisplayName -like '$displayName'" -Properties Name, samaccountname, mail | select Name, samaccountName, mail
+<#-----------------------------------------------------------------Start of Vendor Creation------------------------------------------------------------------------------#>
+if($VendorCheckbox.Checked){
+        #Manager Search#
+        $Manager = SearchManager
 
-        if($Manager -ne $null){
-            $Manager = Get-ADUser -Filter "mail -like '$mgr*'" -Properties Name, samaccountname, mail | Select-Object Name, samAccountName, mail
-        }elseif($MangerDN -ne $null){
-            $Manager = Get-ADUser -Filter "DisplayName -like '$displayName'" -Properties Name, samaccountname, mail | select Name, samaccountName, mail
-        }
         $msgBody = "Confirm user creation?"+"`r`n"+"`r`n"+
         "Display Name: "+$lNameTextbox.Text+", "+$fNameTextbox.Text+"`r`n"+
         "Email Address: "+$EmailTextbox.Text+"`r`n"+
         "Manager: "+$Manager.mail
-
         $givenName = $lNameTextbox.Text+", "+$fNameTextbox.Text
-        $msgBtn = "OKCancel"
-        $Result = [System.Windows.Forms.MessageBox]::show($msgBody, "Create User in Active Directory", $msgBtn, "Question")
+        $Result = [System.Windows.Forms.MessageBox]::show($msgBody, "Create User in Active Directory", "OKCancel", "Question")
 
-        if ($Result -eq 1) {
+    if ($Result -eq 1) {
                 #checks if user already exists before creation#
                 $confirm = Get-ADUser -Filter{SamAccountName -eq $samNameTextbox.Text} -Server $domainController
                 if($PWGenTextbox.Text.Length -lt 20){
@@ -437,62 +550,45 @@ if(($fNameTextbox.Text -eq "") -or ($lNameTextbox.Text -eq "") -or ($locationCom
                 if($confirm -ne $null){
                         [System.Windows.Forms.MessageBox]::show("User already exists within AD.", "User Exists", "OK","Error")
                         return
-                    }else{
+                }else{
                        try{
-                       New-ADUser  -Name $givenName -GivenName $fNameTextbox.Text -Surname $lNameTextbox.Text -SamAccountName $samNameTextbox.Text.ToLower() `
-                      -DisplayName $givenName -Description $titleTextbox.Text -Title $titleTextbox.Text -Company "Vendor" -Manager $Manager.samAccountName -UserPrincipalName $EmailTextbox.Text `
-                      -Enabled $true -CannotChangePassword $true -AccountPassword (ConvertTo-SecureString -AsPlainText $PWGenTextbox.Text -Force) -ChangePasswordAtLogon $false `
-                      -Path $locationCombo.Text -Server $domainController
+                        New-ADUser  -Name $givenName -GivenName $fNameTextbox.Text -Surname $lNameTextbox.Text -SamAccountName $samNameTextbox.Text.ToLower() `
+                        -DisplayName $givenName -Description $titleTextbox.Text -Title $titleTextbox.Text -Company $VendorCompanyTextBox.Text -Manager $Manager.samAccountName -UserPrincipalName $EmailTextbox.Text `
+                        -Enabled $true -CannotChangePassword $true -AccountPassword (ConvertTo-SecureString -AsPlainText $PWGenTextbox.Text -Force) -ChangePasswordAtLogon $false `
+                        -AccountExpirationDate (Get-Date).AddDays(90) -Path $locationCombo.Text -Server $domainController
                       }catch{
-                        [System.Windows.Forms.MessageBox]::show("User already exists within AD.", "User Exists", "OK","Error")
+                        [System.Windows.Forms.MessageBox]::show("SamAccountName exceeds Active Directory's Max length of 20 characters or name is not unique", "Creation Error", "OK","Error")
                         return
                       }
-
-                      Add-ADGroupMember -Identity "GROUP_ACCESS" -Members $samNameTextbox.Text -Server $domainController
-
-                      if($VPNCheckbox.Checked -eq $true){
-                          Add-ADGroupMember -Identity "GROUP_ACCESS" -Members $samNameTextbox.Text -Server $domainController
-                      }else{}
-  
-                      if($O365Checkbox.Checked){
-                          Add-ADGroupMember -Identity "GROUP_ACCESS" -Members $samNameTextbox.Text -Server $domainController
-                          Add-ADGroupMember -Identity "GROUP_ACCESS" -Members $samNameTextbox.Text -Server $domainController
-                          Add-ADGroupMember -Identity "GROUP_ACCESS" -Members $samNameTextbox.Text -Server $domainController
-                          Add-ADGroupMember -Identity "GROUP_ACCESS" -Members $samNameTextbox.Text -Server $domainController
-
-                          $RemoteRouting = $samNameTextbox.Text + "@COMPANY'S ONPREM ROUTING ADDRESS"
-                          Enable-RemoteMailbox -Identity $samNameTextbox.Text -PrimarySmtpAddress $EmailTextbox.Text -RemoteRoutingAddress $EmailTextbox.Text -DomainController $domainController
-                          Set-RemoteMailbox -Identity $samNameTextbox.Text -EmailAddresses @{add=$RemoteRouting} -RemoteRoutingAddress $RemoteRouting -DomainController $domainController
-                      }else{}
-  
-                      $confirm = Get-ADUser -Filter{SamAccountName -eq $samNameTextbox.Text} -Server $domainController
+                        Add-ADGroupMember -Identity "Group" -Members $samNameTextbox.Text -Server $domainController
+                        Add-ADGroupMember -Identity "Group" -Members $samNameTextbox.Text -Server $domainController
+                        Add-ADGroupMember -Identity "Group" -Members $samNameTextbox.Text -Server $domainController
+                        Add-ADGroupMember -Identity "Group" -Members $samNameTextbox.Text -Server $domainController
+                        Set-ADUser -Identity $samNameTextbox.Text -EmailAddress $EmailTextbox.Text -Server $domainController
+                      $confirm = Get-ADUser -Filter {SamAccountName -eq $samNameTextbox.Text} -Server $domainController
                       if($confirm -ne $null){ 
-                          [System.Windows.Forms.MessageBox]::show("User has been successfully created!`nUser Information has been copied to clipboard to paste in ticket.", "Creation Successful", "OK")
+                          [System.Windows.Forms.MessageBox]::show("User has been successfully created!`r`nUser Information has been copied to clipboard.`r`nPlease paste the information in a secret link and share it with requester.", "Creation Successful", "OK")
                           Set-Clipboard -Value ("Username will be: " + $samNameTextbox.Text + `
-                          "`r`nPassword is: "+ $PWGenTextbox.Text)
+                          "`r`nPassword is: "+ $PWGenTextbox.Text + `
+                          "`r`n`r`nUser will have an account expiration date of 90 Days from the time of creation and the requester/manager will have to submit a service desk ticket in order to extend the account for another 90 Days upon expiration" + `
+                          "`r`nExpiration Date: "+ (Get-Date).AddDays(90).Date)
+                          SendVendorEmail
                           ClearForm
                       }else{
                           [System.Windows.Forms.MessageBox]::show("User creation has failed!", "No User Found", "OK")
                       }
-                  }
-                }else{}
-            }#End of Vendor Creation
-    else{#Start of regular user
+                    }
+    }
+}
+<#-----------------------------------------------------------------End of Vendor Creation---------------------------------------------------------------------------------#>
 
-        #Searches for manager by either legal name or displayed nickname
-        $displayName = $mgrTextbox.Text
-        $MgrSearch = $mgrTextbox.Text.Split(",",2).Replace(" ","")
-        $mgr = $MgrSearch[1]+"."+$MgrSearch[0]
-        $Manager = Get-ADUser -Filter "mail -like '$mgr*'" -Properties Name, samaccountname, mail | Select-Object Name, samAccountName, mail
-        $MangerDN = Get-ADUser -Filter "DisplayName -like '$displayName'" -Properties Name, samaccountname, mail | select Name, samaccountName, mail
 
-        if($Manager -ne $null){
-            $Manager = Get-ADUser -Filter "mail -like '$mgr*'" -Properties Name, samaccountname, mail | Select-Object Name, samAccountName, mail
-        }elseif($MangerDN -ne $null){
-            $Manager = Get-ADUser -Filter "DisplayName -like '$displayName'" -Properties Name, samaccountname, mail | select Name, samaccountName, mail
-        }
+<#-------------------------------------------------------------Start of Regular User Creation-------------------------------------------------------------------------#>
+    else{
+        #Manager Search#
+        $Manager = SearchManager
 
-        #Copy AD user account
+        #Copy AD user
         if($ADMirrorTextbox.Text -ne ""){
             $displayName = $ADMirrorTextbox.Text
             $ADMirrorSearch = $ADMirrorTextbox.Text.Split(",",2).Replace(" ","")
@@ -505,18 +601,22 @@ if(($fNameTextbox.Text -eq "") -or ($lNameTextbox.Text -eq "") -or ($locationCom
             }elseif($MirroredDN -ne $null){
                 $UserMirror = Get-ADUser -Filter "DisplayName -like '$displayName'" -Properties Name, samaccountname, mail, displayName | select Name, samaccountName, mail, displayName
             }
-            #checks if connection is already active to MgGraph in order to check cloud group membership
+            #checks if connection is already active to MgGraph
             try{
                 Get-MgOrganization -ErrorAction Stop
             } catch{
-                Connect-MgGraph -Scopes "Group.Read.All"
+                Connect-MgGraph -Scopes "Group.ReadWrite.All" -NoWelcome
             }
-            $AADGroupMembership = Get-MgUserMemberOf -UserId $UserMirror.mail | ForEach-Object `
-            {Get-MgGroup -GroupId $_.Id | select DisplayName, Id, Mail, MailEnabled, Visibility `
-            | where {$_.MailEnabled -eq $true -and $_.Mail -notlike "*msteam*" -and $_.Visibility -eq $null}}
-            $MirroredGroups = Get-ADUser -Identity $UserMirror.samaccountname -Properties MemberOf, samaccountName | Select-Object samaccountname -ExpandProperty MemberOf | foreach{(get-adgroup $_).samaccountname}
-        }else{}
 
+            try{
+                $AADGroupMembership = Get-MgUserMemberOf -UserId $UserMirror.mail | ForEach-Object `
+                {Get-MgGroup -GroupId $_.Id | select DisplayName, Id, Mail, MailEnabled, Visibility `
+                | where {$_.MailEnabled -eq $true -and $_.Mail -notlike "*msteam*" -and $_.Visibility -eq $null}}
+            } catch{
+                Write-Host "Cannot connect to MgGraph API at this time." -ForegroundColor Red
+            }
+            $MirroredGroups = Get-ADUser -Identity $UserMirror.samaccountname -Properties MemberOf, samaccountName | Select-Object samaccountname -ExpandProperty MemberOf | foreach{(get-adgroup $_).samaccountname}
+        }
 
         $msgBody = "Confirm user creation?"+"`r`n"+"`r`n"+
         "Display Name: "+$lNameTextbox.Text+", "+$fNameTextbox.Text+"`r`n"+
@@ -525,116 +625,91 @@ if(($fNameTextbox.Text -eq "") -or ($lNameTextbox.Text -eq "") -or ($locationCom
         "Mirror AD user: "+$UserMirror.displayName
 
         $givenName = $lNameTextbox.Text+", "+$fNameTextbox.Text
-        $msgBtn = "OKCancel"
-        $Result = [System.Windows.Forms.MessageBox]::show($msgBody, "Create User in Active Directory", $msgBtn, "Question")
+        $Result = [System.Windows.Forms.MessageBox]::show($msgBody, "Create User in Active Directory", "OKCancel", "Question")
 
         if ($Result -eq 1) {
-            #checks if user already exists before creation
+            #checks if user already exists before creation#
             $confirm = Get-ADUser -Filter "(proxyAddresses -like '*$($EmailTextbox.Text)*')" -Server $domainController
-            if($confirm -eq $null){
-                #User does not exist. Continue silently.
-            }else{
+            if(![string]::IsNullOrEmpty($confirm)){
                 [System.Windows.Forms.MessageBox]::show($samNameTextbox.Text + " already exists within AD.", "User Exists", "OK","Error")
                 return
-            }
-            try{
-            New-ADUser  -Name $givenName -GivenName $fNameTextbox.Text -Surname $lNameTextbox.Text -SamAccountName $samNameTextbox.Text.ToLower() `
-            -DisplayName $givenName -Description $titleTextbox.Text -Title $titleTextbox.Text -Company "COMPANY_NAME" -Manager $Manager.samAccountName -UserPrincipalName $EmailTextbox.Text `
-            -Enabled $true -AccountPassword (ConvertTo-SecureString -AsPlainText $newUserPassword -Force) -ChangePasswordAtLogon $true `
-            -Path $locationCombo.Text -Server $domainController -ErrorAction Stop
-            }catch{
-                [System.Windows.Forms.MessageBox]::show("SamAccountName exceeds Active Directory's Max length of 20 characters", "Creation Error", "OK","Error")
-                return
-            }
-            
-            #####Await timer##### -- NOT NEEDED but ensures that account creation is done before adding groups
-            Start-Sleep -Seconds 5
-
-            Add-ADGroupMember -Identity "GROUP_ACCESS" -Members $samNameTextbox.Text -Server $domainController
-            Add-ADGroupMember -Identity "GROUP_ACCESS" -Members $samNameTextbox.Text -Server $domainController
-            Add-ADGroupMember -Identity "GROUP_ACCESS" -Members $samNameTextbox.Text -Server $domainController
-
-            if($MirroredGroups -ne $null -and $ADMirrorTextbox.Text -ne ""){
-                foreach($group in $MirroredGroups){
-                    Add-ADGroupMember -Identity $group -Members $samNameTextbox.Text -Server $domainController
-                }
-            }else{}
-
-            if($locationCombo.Text -like "*SPECIFIC_SITE_LOCATION*"){
-                Add-ADGroupMember -Identity "GROUP_ACCESS" -Members $samNameTextbox.Text -Server $domainController
-            }else{}
-            
-            if ($VPNCheckbox.Checked -eq $true) {
-                Add-ADGroupMember -Identity VPNUsers -Members $samNameTextbox.Text -Server $domainController
-            }else{}
-            if($cellCheckbox.Checked -eq $true){
-                 if((($locationCombo.Text -like "*SPECIFIC_SITE_LOCATION*") -or ($locationCombo.Text -like "*SPECIFIC_SITE_LOCATION*"))){
-                        #Sends to DEDICATED_USER if location is SITE or SITE
-                        Add-ADGroupMember -Identity "GROUP_ACCESS"-Members $samNameTextbox.Text -Server $domainController
-                        $url = ($ticketTextbox.Text)
-
-                        Send-MailMessage -From $sendFrom -To $morVonPhones -Cc @($Manager.mail,$EmailTextbox.Text)  -Bcc @('OVERSEER') -SmtpServer "SMTP_MAIL_SERVER" `
-                        -Subject "CellPhone Order Placement" -BodyAsHtml `
-                        -Body ("Hello,<br>An order for a cellphone is needed for this new employee: " + "$givenName" + "`r`n" +
-                        "<br>User's Expected Start Date: " + $startDateTextbox.Text +
-                        "<br>User's Cost Center: " + $costCenterTextbox.Text + 
-                        "<br>Ship Device to: " + $addressTextbox.Text +
-                        "<br>Please visit <a href='$url'> Link </a> to view ticket." +
-                        "<br>Thank you!") -Attachments ".\Zero Touch Phone Enrollment.pdf"
-                }else{ 
-                        Add-ADGroupMember -Identity "GROUP_ACCESS" -Members $samNameTextbox.Text -Server $domainController
-                        $url = ($ticketTextbox.Text)
-
-                        Send-MailMessage -From $sendFrom -To "DISTRIBUTION_GROUP" -Cc @($Manager.mail,$EmailTextbox.Text)  -Bcc @("OVERSEER") -SmtpServer "SMTP_MAIL_SERVER" `
-                        -Subject "CellPhone Order Placement" -BodyAsHtml `
-                        -Body ("Hello,<br>An order for a cellphone is needed for this new employee: " + "$givenName" + "`r`n" +
-                        "<br>User's Expected Start Date: " + $startDateTextbox.Text +
-                        "<br>User's Cost Center: " + $costCenterTextbox.Text + 
-                        "<br>Ship Device to: " + $addressTextbox.Text +
-                        "<br>Please visit <a href='$url'> Link </a> to view ticket." +
-                        "<br>Thank you!") -Attachments ".\Zero Touch Phone Enrollment.pdf"
-                }
-            }else{}
-            if ($oracleTextbox.Text -ne "") {
-                Send-MailMessage -From $sendFrom -To $oracleContact -Cc $Manager.mail -Bcc "OVERSEER" -SmtpServer smtpmail `
-                -Subject "Oracle Account Creation" `
-                -Body ("Hello $($oracleContact.Split('.')[0]), `nPlease create an oracle account for: " + "$givenName" + " that mirrors: " + $oracleTextbox.Text.toString() + "`r`n" +
-                "`r`nPlease reach out to: " + $mgrTextbox.Text + " if additional information is needed. Thank you!")
-            }else{}
-
-            $confirm = Get-ADUser -Filter{SamAccountName -eq $samNameTextbox.Text} -Server $domainController
-            if($confirm -ne $null){
-                if($AADGroupMembership -ne $null){
-                    [System.Windows.Forms.MessageBox]::show("User added to On-Prem groups/resources. A script with user's name has been created on your desktop to run in about an hour to automatically add user to the O365 Groups below.`
-Simply right-click > Run w/Powershell and then use CLOUD_ACCOUNT when prompted. Once successfully ran, you may delete the script from your desktop."+"`r`n"+"`r`n"+($AADGroupMembership.DisplayName -join "`n"), "Add User to Cloud Distribution Groups", "OK")
-
-                    $currentUser = whoami | %{$_.remove(0,4)}
-                    #Auto Create script file
-                    #1
-                    Add-Content -Path "C:\Users\$($currentUser)\Desktop\$($samNameTextbox.Text).ps1" -Value 'Connect-ExchangeOnline -ShowBanner:$false'
-                    #2
-                    Add-Content -path "C:\Users\$($currentUser)\Desktop\$($samNameTextbox.Text).ps1" -value 'Connect-MgGraph -Scopes "Group.Read.All" -NoWelcome'
-                    #3
-                    '$AADuserId = "'+$UserMirror.mail+'"' | Add-Content -path "C:\Users\$($currentUser)\Desktop\$($samNameTextbox.Text).ps1"
-                    #4
-                    '$NewUser ="'+$EmailTextbox.Text+'"' | Add-Content -path "C:\Users\$($currentUser)\Desktop\$($samNameTextbox.Text).ps1"
-                    Add-Content -path "C:\Users\$($currentUser)\Desktop\$($samNameTextbox.Text).ps1" -encoding string -value '$AADGroupMembership = Get-MgUserMemberOf -UserId $AADuserId | ForEach-Object `
-                    {Get-MgGroup -GroupId $_.Id | select DisplayName, Id, Mail, MailEnabled, Visibility `
-                    | where {$_.MailEnabled -eq $true -and $_.Mail -notlike "*msteam*" -and $_.Visibility -eq $null}}'
-
-                    Add-Content -path "C:\Users\$($currentUser)\Desktop\$($samNameTextbox.Text).ps1" -value 'foreach($AADid in $AADGroupMembership){
-                        Add-DistributionGroupMember -Identity $AADid.Mail -Member $NewUser -BypassSecurityGroupManagerCheck
-                    }' -nonewline
-                    #End of automatic script creation
-
-                }else{}
-                [System.Windows.Forms.MessageBox]::show("User has been successfully created!`nUser Information has been copied to clipboard to paste in ticket.", "Creation Successful", "OK")
-                Set-Clipboard -Value ("Username will be: " + $samNameTextbox.Text + " `r`nEmail address will be: " + $EmailTextbox.Text +`
-                "`r`nPassword is: "+ $newUserPassword + " `r`nUser will be prompted to change password after logging in.")
-                ClearForm
             }else{
-                [System.Windows.Forms.MessageBox]::show("User creation has failed!", "No User Found", "OK")
-            }
+                try{
+                    $siteCode = OfficeLocation $locationCombo.text
+                    New-ADUser  -Name $givenName -GivenName $fNameTextbox.Text -Surname $lNameTextbox.Text -SamAccountName $samNameTextbox.Text.ToLower() `
+                    -DisplayName $givenName -Description $titleTextbox.Text -Title $titleTextbox.Text -Company "Company" -Manager $Manager.samAccountName -UserPrincipalName $EmailTextbox.Text `
+                    -Enabled $true -AccountPassword (ConvertTo-SecureString -AsPlainText $newUserPassword -Force) -ChangePasswordAtLogon $true `
+                    -Path $locationCombo.Text -Office $siteCode -EmailAddress $EmailTextbox.Text -Server $domainController -ErrorAction Stop
+                }catch{
+                    [System.Windows.Forms.MessageBox]::show("SamAccountName exceeds Active Directory's Max length of 20 characters or name is not unique", "Creation Error", "OK","Error")
+                    return
+                }
+                
+                $confirm = Get-ADUser -Filter {SamAccountName -eq $samNameTextbox.Text} -Server $domainController
+                if($confirm -ne $null){
+                    Add-ADGroupMember -Identity "Group" -Members $samNameTextbox.Text -Server $domainController
+                    Add-ADGroupMember -Identity "Group" -Members $samNameTextbox.Text -Server $domainController
+                    Add-ADGroupMember -Identity "Group" -Members $samNameTextbox.Text -Server $domainController
+
+                    if($MirroredGroups -ne $null -and $ADMirrorTextbox.Text -ne ""){
+                        foreach($group in $MirroredGroups){
+                            Add-ADGroupMember -Identity $group -Members $samNameTextbox.Text -Server $domainController
+                        }
+                    }
+                    #possibly need to add other sites to add to specific groups
+                    switch ($siteCode) {
+                        "site" { Add-ADGroupMember -Identity "Group" -Members $samNameTextbox.Text -Server $domainController }
+                        Default {}
+                    }
+                    
+                    if ($VPNCheckbox.Checked -eq $true) {
+                        Add-ADGroupMember -Identity "Group" -Members $samNameTextbox.Text -Server $domainController
+                    }
+
+                    if($cellCheckbox.Checked -eq $true){
+                        SendEmail $siteCode
+                    }
+
+                    if ($oracleTextbox.Text -ne "") {
+                        Send-MailMessage -From $sendFrom -To $oracleContact -Cc $Manager.mail -Bcc "whoeverEmail" -SmtpServer $smtpServer -Port 25 `
+                        -Subject "Oracle Account Creation" `
+                        -Body ("Hello $($oracleContact.Split('.')[0]), `nPlease create an oracle account for: " + "$givenName" + " that mirrors: " + $oracleTextbox.Text.toString() + "`r`n" +
+                        "`r`nPlease reach out to: " + $mgrTextbox.Text + " if additional information is needed. Thank you!")
+                    }
+
+                    
+                        #Auto Create script file for adding AAD group membership
+                        if($AADGroupMembership -ne $null){
+                            [System.Windows.Forms.MessageBox]::show("User added to On-Prem groups/resources. A script with user's name has been created on your desktop to run in about an hour to automatically add user to the O365 Groups below.`
+        Simply right-click > Run w/Powershell and then use 2account when prompted. Once successfully ran, you may delete the script from your desktop."+"`r`n"+"`r`n"+($AADGroupMembership.DisplayName -join "`n"), "Add User to Cloud Distribution Groups", "OK")
+
+                            $currentUser = whoami | %{$_.remove(0,4)}
+                            #1
+                            Add-Content -Path "C:\Users\$($currentUser)\Desktop\$($samNameTextbox.Text).ps1" -Value 'Connect-ExchangeOnline -ShowBanner:$false'
+                            #2
+                            Add-Content -path "C:\Users\$($currentUser)\Desktop\$($samNameTextbox.Text).ps1" -value 'Connect-MgGraph -Scopes "Group.Read.All" -NoWelcome'
+                            #3
+                            '$AADuserId = "'+$UserMirror.mail+'"' | Add-Content -path "C:\Users\$($currentUser)\Desktop\$($samNameTextbox.Text).ps1"
+                            #4
+                            '$NewUser ="'+$EmailTextbox.Text+'"' | Add-Content -path "C:\Users\$($currentUser)\Desktop\$($samNameTextbox.Text).ps1"
+                            Add-Content -path "C:\Users\$($currentUser)\Desktop\$($samNameTextbox.Text).ps1" -encoding string -value '$AADGroupMembership = Get-MgUserMemberOf -UserId $AADuserId | ForEach-Object `
+                            {Get-MgGroup -GroupId $_.Id | select DisplayName, Id, Mail, MailEnabled, Visibility `
+                            | where {$_.MailEnabled -eq $true -and $_.Mail -notlike "*msteam*" -and $_.Visibility -eq $null}}'
+
+                            Add-Content -path "C:\Users\$($currentUser)\Desktop\$($samNameTextbox.Text).ps1" -value 'foreach($AADid in $AADGroupMembership){
+                                Add-DistributionGroupMember -Identity $AADid.Mail -Member $NewUser -BypassSecurityGroupManagerCheck
+                            }' -nonewline
+                            #End of automatic script creation
+
+                        }else{}
+                        [System.Windows.Forms.MessageBox]::show("User has been successfully created!`nUser Information has been copied to clipboard to paste in ticket.", "Creation Successful", "OK")
+                        Set-Clipboard -Value ("Username will be: " + $samNameTextbox.Text + " `r`nEmail address will be: " + $EmailTextbox.Text +`
+                        "`r`nPassword is: "+ $newUserPassword + " `r`nUser will be prompted to change password after logging in.")
+                        ClearForm
+                    }else{
+                        [System.Windows.Forms.MessageBox]::show("User creation has failed!", "No User Found", "OK")
+                    }
+                }
         }
     }
  }
