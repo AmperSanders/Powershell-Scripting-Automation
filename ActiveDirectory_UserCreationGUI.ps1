@@ -1,3 +1,4 @@
+#If downloaded, may need to run powershell as admin to change executionPolicy prior: Set-ExecutionPolicy RemoteSigned then set back, if needed, to: Set-ExecutionPolicy Restricted
 Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Confirm:$false
 Connect-ExchangeOnline
 $textInfo = (Get-Culture).TextInfo
